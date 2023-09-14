@@ -1,0 +1,3 @@
+[submodule "data/IntroClass"]
+	path = data/IntroClass
+	url = https://github.com/ProgramRepair/IntroClass
