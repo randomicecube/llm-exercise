@@ -5,6 +5,7 @@ from langchain.prompts import PromptTemplate
 
 print_debug = lambda arg: print("[DEBUG] " + str(arg))
 print_info = lambda arg: print("[INFO] " + str(arg))
+print_error = lambda arg: print("[ERROR] " + str(arg))
 
 ################################################################################
 
@@ -19,10 +20,10 @@ def get_api_token(agenix = True):
     os.chdir(pwd)
     return key
   # Otherwise just have a .env file and have your API key there, read it and so on
-  return "<insert your key here>"
+  return os.environ.get("HUGGING_FACE_API_KEY")
 
 MODEL = "HuggingFaceH4/starchat-beta"
-API_TOKEN = get_api_token()
+API_TOKEN = get_api_token(False)
 
 ################################################################################
 
@@ -34,7 +35,8 @@ llm = HuggingFaceHub(
       "min_length": 30,
       "max_new_tokens": 256,
       "do_sample": True,
-      "temperature": 0.8,
+      "repetition_penalty": 1.2,
+      "temperature": 0.2,
       "top_k": 50,
       "top_p": 0.95,
       "eos_token_id": 123721,
@@ -51,6 +53,8 @@ def perform_query(code):
   reply = chain.run(code)
   reply = reply.partition("```rust")[2] # get everything after the code starts being written
   reply = reply.partition("```")[0] # we can discard everything after the code ends
+  # there's also some cases where the final ``` doesn't seem to be put (?)
+  reply = reply.partition("<|end|>")[0]
   # this assumes that no-one used ``` along the code itself, which is a bit of a hack
   return reply
 
@@ -59,12 +63,17 @@ def perform_query(code):
 SRC_DIR = os.getcwd()
 BENCHMARK_LOCATION = SRC_DIR + "/../data/IntroClass/"
 RUST_CODE_LOCATION = SRC_DIR + "/../data/c-to-rust/"
+#BENCHMARKS = map(
+#  lambda b: BENCHMARK_LOCATION + b,
+#  [ "checksum/", "digits/", "grade/", "median/", "smallest/", "syllables/" ]
+#)
 BENCHMARKS = map(
   lambda b: BENCHMARK_LOCATION + b,
-  [ "checksum/", "digits/", "grade/", "median/", "smallest/", "syllables/" ]
+  [ "checksum/" ]
 )
 TO_AVOID = [ "tests" ]
-TEST_TYPES = [ "blackbox", "whitebox" ]
+#TEST_TYPES = [ "blackbox", "whitebox" ]
+TEST_TYPES = [ "blackbox" ]
 
 compilation_failures = 0
 test_failures = 0
@@ -111,7 +120,7 @@ def run_tests(rust_dir):
       test_name = test[:-3]
       with open(f"tests/{test_type}/{test}", "r") as test_file:
         input_data = test_file.read()
-        result = subprocess.run(["./main"], input=input_data.encode("utf-8"), capture_output=True)
+        result = subprocess.run(["./main"], input=input_data.encode("utf-8"), capture_output=True, timeout=5)
         with open(f"tests/{test_type}/{test_name}.out", "r") as expected_output:
           expected_output = expected_output.read()
           # Ideally we'd keep checking more and more tests, but for simplicity's
@@ -167,16 +176,18 @@ for benchmark in BENCHMARKS:
           
           match result:
             case "COMPILER_FAILURE":
-              print(f"Compiler failure for {submission_path + benchmark_name + '.c'}")
+              print_error(f"Compiler failure for {submission_path + benchmark_name + '.c'}")
               compilation_failures += 1
             case "TEST_FAILURE":
-              print(f"Test failure for {submission_path + benchmark_name + '.c'}")
+              print_info(f"Test failure for {submission_path + benchmark_name + '.c'}")
               test_failures += 1
             case "TEST_SUCCESS":
-              print(f"Test success for {submission_path + benchmark + '.c'}")
+              print_info(f"Test success for {submission_path + benchmark + '.c'}")
               test_successes += 1
 
       except FileNotFoundError:
         print(f"The submission {submission_path + benchmark_name + '.c'} was not found.")
       except Exception as e:
         print(f"An error occurred: {str(e)}")
+
+print_info(f"Compilation failures: {compilation_failures}, Test failures: {test_failures}, Test successes: {test_successes}")
