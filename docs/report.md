@@ -32,3 +32,27 @@ in particular, it's natural to investigate whether these models can actually pro
 good, faithful, and idiomatic language translations. With these models being trained
 on large amounts of data, it's possible that they can learn the intricacies of a language, through context cues and
 other features, thus producing more idiomatic source-to-source migrations.
+
+## Setup
+
+I'll be using the [IntroClass](https://github.com/ProgramRepair/IntroClass) benchmark
+for this report, in order to both gather the examples to translate, as well as to
+have a concrete way to evaluate the amount of errors/faults in the translated code.
+
+Moreover, I'll be using the [StarChatAlpha](https://huggingface.co/blog/starcoder) model,
+an assistant-like extension to StarCoderBase, a model by HuggingFace trained on
+80+ languages (including both C and Rust). The model was chosen after trying many other
+models, which either did not have a (free) REST API, refused to work on my machine,
+or were simply too poor on the tasks at hand (an example of this was Databricks' dolly-v2-3b,
+which basically seemed to always comment the C code, change the types of the functions to `fn`,
+and called it a day).
+
+
+## Sidenote - Experiment
+
+Although it wasn't really what was asked, I also found it interesting to see if I could, using a
+tech-assistant like model, try to make it first explain what the C code is doing, and then ask it to,
+having only that explanation as input, write the equivalent Rust code.
+
+(insert results here)
+

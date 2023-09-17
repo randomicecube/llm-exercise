@@ -9,7 +9,7 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs-unstable { inherit system; };
-        pythonPackages = p: with p; [ transformers torch accelerate einops huggingface-hub ];
+        pythonPackages = p: with p; [ huggingface-hub langchain ];
       in
       {
         devShell = pkgs.mkShell {

@@ -1,12 +1,48 @@
-import torch
-from transformers import pipeline
+import os
+import subprocess
+from langchain import HuggingFaceHub, LLMChain
+from langchain.prompts import PromptTemplate
 
-pipe = pipeline("text-generation", model="HuggingFaceH4/starchat-beta", torch_dtype=torch.bfloat16, device_map="auto")
+# Pass False as an argument if you don't use agenix (slash if you aren't me)
+def get_api_token(agenix = True):
+  if agenix:
+    pwd = os.getcwd()
+    os.chdir(os.environ.get("HOME") + "/gaspafiles/secrets")
+    key = subprocess.check_output(["agenix", "-d", "hugging-face.age"]).decode("utf-8").replace("\n", "")
+    os.chdir(pwd)
+    return key
+  # Otherwise just have a .env file and have your API key there, read it and so on
+  return "<insert your key here>"
 
-# We use a variant of ChatML to format each message
-prompt_template = "<|system|>\n<|end|>\n<|user|>\n{query}<|end|>\n<|assistant|>"
-prompt = prompt_template.format(query="How do I sort a list in Python?")
-# We use a special <|end|> token with ID 49155 to denote ends of a turn
-outputs = pipe(prompt, max_new_tokens=256, do_sample=True, temperature=0.2, top_k=50, top_p=0.95, eos_token_id=49155)
-# You can sort a list in Python by using the sort() method. Here's an example:\n\n```\nnumbers = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5]\nnumbers.sort()\nprint(numbers)\n```\n\nThis will sort the list in place and print the sorted list.
+model_id = "HuggingFaceH4/starchat-beta"
+api_token = get_api_token()
+
+llm = HuggingFaceHub(
+    repo_id=model_id,
+    huggingfacehub_api_token=api_token,
+    task = "text-generation",
+    model_kwargs = {
+      "min_length": 30,
+      "max_new_tokens": 256,
+      "do_sample": True,
+      "temperature": 0.2,
+      "top_k": 50,
+      "top_p": 0.95,
+      "eos_token_id": 49155,
+    }
+)
+
+prompt = PromptTemplate(
+  input_variables=[ "code" ],
+  template="Translate the following C code to Rust:\n{code}"
+)
+
+with open("test.c", "r") as file:
+  code = file.read()
+  chain = LLMChain(prompt=prompt, llm=llm)
+  reply = chain.run(code)
+  reply = reply.partition("```rust")[2] # get everything after the code starts being written
+  reply = reply.partition("```")[0] # we can discard everything after the code ends
+  # this assumes that no-one used ``` along the code itself, which is a bit of a hack
+  print(reply)
 
