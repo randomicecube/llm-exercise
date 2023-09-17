@@ -1,2 +1,4 @@
 .vscode/
 data/c-to-rust/*
+data/c-to-python/*
+.envrc
