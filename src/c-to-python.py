@@ -78,6 +78,12 @@ compilation_failures = 0
 test_failures = 0
 test_successes = 0
 
+class QueryResult:
+  def __init__(self, result, outputs = None):
+    # Note that result is a string, which may be "COMPILER_FAILURE", "TEST_FAILURE" or "TEST_SUCCESS"
+    self.result = result
+    self.outputs = outputs # a tuple with two strings, the expected output and the actual output
+
 
 def create_tests(python_dir, benchmark):
   # we want to copy the tests/ folder from the benchmark to python_dir
@@ -85,6 +91,19 @@ def create_tests(python_dir, benchmark):
   os.chdir(benchmark)
   subprocess.run(["cp", "-r", "tests/", python_dir])
   os.chdir(pwd)
+
+def test_code(python_dir):
+  # We'll try 3 runs, and if all of them fail, we'll just give up
+  for attempt in range(1, 4):
+    test_result = run_tests(python_dir)
+    if test_result.result == "TEST_FAILURE":
+      print_debug(f"Test failure: {test_result.outputs}")
+      if attempt == 3:
+        return test_result
+      continue
+    break
+
+  return QueryResult("TEST_SUCCESS")
 
 def run_tests(python_dir):
   # The tests are just simple .in files, with the expected output being in the corresponding .out file
@@ -97,17 +116,19 @@ def run_tests(python_dir):
       test_name = test[:-3]
       with open(f"tests/{test_type}/{test}", "r") as test_file:
         input_data = test_file.read()
-        result = subprocess.run(["python", "main.py"], input=input_data.encode("utf-8"), capture_output=True, timeout=5)
+        result = subprocess.run(["python", "src/main.py"], input=input_data, capture_output=True, text=True, timeout=5)
         with open(f"tests/{test_type}/{test_name}.out", "r") as expected_output:
           expected_output = expected_output.read()
           # Ideally we'd keep checking more and more tests, but for simplicity's
           # sake we'll just stop at the first failure
-          if result.stdout.decode("utf-8") != expected_output:
-            print_debug(f"Expected: {expected_output}")
-            print_debug(f"Got: {result.stdout.decode('utf-8')}")
-            return "TEST_FAILURE"
+          if expected_output != result.stdout:
+            print_debug(f"Test failure for {test_type}/{test_name}.in")
+            print_debug(f"Expected output: {expected_output}")
+            print_debug(f"Actual output: {result.stdout}")
+            os.chdir(pwd)
+            return QueryResult("TEST_FAILURE", (expected_output, result.stdout))
   os.chdir(pwd)
-  return "TEST_SUCCESS"
+  return QueryResult("TEST_SUCCESS")
 
 
 
@@ -150,9 +171,9 @@ for benchmark in BENCHMARKS:
             os.mkdir(python_dir + "/src")
           with open(python_dir + "/src/main.py", "w") as python_file:
             python_file.write(reply)
-          result = run_tests(python_dir)
+          query_result = run_tests(python_dir)
           
-          match result:
+          match query_result.result:
             case "TEST_FAILURE":
               print_info(f"Test failure for {submission_path + benchmark_name + '.c'}")
               test_failures += 1

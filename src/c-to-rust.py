@@ -130,17 +130,39 @@ def create_tests(rust_dir, benchmark):
   os.chdir(pwd)
 
 def test_code(rust_dir):
-  pwd = os.getcwd()
-  os.chdir(rust_dir)
-  compilation_result = subprocess.run(["rustc", "src/main.rs"], capture_output=True, text=True)
-  os.chdir(pwd)
+  global compilation_failures, test_failures, test_successes
+  
+  # We'll try 3 runs to try and compile, and 3 others to run the tests
+  for attempt in range(1, 4):
+    pwd = os.getcwd()
+    os.chdir(rust_dir)
+    compilation_result = subprocess.run(["rustc", "src/main.rs"], capture_output=True, text=True)
+    os.chdir(pwd)
 
-  # Rust's compiler, on compilation errors, returns "For more information about this error, try `rustc --explain <error code>`".
-  # With more time, it'd be interesting to parse the error code, give it back to the LLM
-  # and ask it to fix the code, considering the given error code.
-  if compilation_result.returncode != 0:
-    return QueryResult("COMPILER_FAILURE", compilation_result.stderr)
-  return run_tests(rust_dir)
+    if compilation_result.returncode != 0:
+      print_debug(f"Compilation failure: {compilation_result.stderr}")
+      compilation_failures += 1
+      if attempt == 3:
+        return QueryResult("COMPILER_FAILURE", compilation_result.stderr)
+    else:
+      break
+
+  for attempt in range(1, 4):
+    test_result = run_tests(rust_dir)
+    if test_result.result == "COMPILER_FAILURE":
+      compilation_failures += 1
+      # We don't want to keep trying to run the tests if we can't even compile, plus could lead to an infinite loop
+      return test_result
+    elif test_result.result == "TEST_FAILURE":
+      print_debug(f"Test failure: {test_result.outputs}")
+      test_failures += 1
+      if attempt == 3:
+        return test_result
+    else:
+      break
+  
+  test_successes += 1
+  return QueryResult("TEST_SUCCESS")
 
 def run_tests(rust_dir):
   # Once again, we won't be using `cargo test`, but rather just running the program itself with specific inputs (and checking the outputs)
@@ -161,6 +183,9 @@ def run_tests(rust_dir):
           # sake we'll just stop at the first failure
           if result.stdout != expected_output:
             os.chdir(pwd)
+            print_debug(f"Test failure for {test_type}/{test_name}.in")
+            print_debug(f"Expected output: {expected_output}")
+            print_debug(f"Actual output: {result.stdout.decode('utf-8')}")
             return QueryResult("TEST_FAILURE", outputs = (expected_output, result.stdout))
   os.chdir(pwd)
   return QueryResult("TEST_SUCCESS")
@@ -170,7 +195,6 @@ def process_submission(
   no_compilation_errors = True, previous_error = None,
   no_test_errors = True, previous_test_failure = None
 ):
-  global compilation_failures, test_failures, test_successes
   try:
     print_debug(f"Processing {submission_path + benchmark_name + '.c'}")
     with open(submission_path + benchmark_name + ".c", "r") as s:
@@ -187,19 +211,12 @@ def process_submission(
         case "COMPILER_FAILURE":
           if no_compilation_errors:
             process_submission(submission_path, benchmark_name, False, query_result.error, no_test_errors)
-          else:
-            print_error(f"Compiler failure for {submission_path + benchmark_name + '.c'}")
-            compilation_failures += 1
         case "TEST_FAILURE":
           if no_test_errors:
             # I'm forcing False for no_compilation_errors, just so there's no possibility of back-and-forth between the two
             process_submission(submission_path, benchmark_name, False, None, False, query_result.outputs)
-          else:
-            print_info(f"Test failure for {submission_path + benchmark_name + '.c'}")
-            test_failures += 1
         case "TEST_SUCCESS":
           print_info(f"Test success for {submission_path + benchmark + '.c'}")
-          test_successes += 1
 
   except FileNotFoundError:
     print(f"The submission {submission_path + benchmark_name + '.c'} was not found.")
