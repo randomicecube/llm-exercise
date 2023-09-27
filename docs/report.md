@@ -6,7 +6,6 @@
   - [Methodology](#methodology)
     - [Prompt Design](#prompt-design)
     - [Model Parameters](#model-parameters)
-  - [Problems found](#problems-found)
   - [General results](#general-results)
   - [Side-experiment - C-to-Python](#side-experiment---c-to-python)
   - [Some ideas that could still be explored in the future](#some-ideas-that-could-still-be-explored-in-the-future)
@@ -124,21 +123,63 @@ majority of API-accessible LLMs seem to do) the possibility of passing [paramete
 in order to aid/specialize the model on whatever task we want to do. The ones I found
 to be most relevant are the following:
 
-TODO: mention the parameters that ended up being used in the end
-
-## Problems found
-
-Besides the ones mentioned in the previous sections, one of the most recurrent problems
-was definitely the model's borderline refusal to utilize `use` statements whenever
-needed, even if the prompt explicitly says for it to do so.
-
-TODO: add rest
-
-<!-- Imports, `use` thingies -->
+- `seed` was used to introduce variability between each translation made (among each iteration,
+  for the same benchmark); it did not seem to yield _that_ much difference, compared
+  to not having it at all, but from an intuition standpoint, it seemed like it'd make sense to utilize it.
+- neither `max_length` nor `min_length` seemed like good choices for me - the code itself
+  did not seem to benefit from setting boundaries on the length of the output, and
+  the code itself never seemed to deviate from "what was expected" regardless of
+  such flags being set, hence why I opted to not use them.
+- I tried tinkering around with the `repetition_penalty` parameter, but it did not
+  seem to change anything in the quality of the output - in fact, regardless of its usage,
+  the code did not seem to repeat itself that much (this would probably be more relevant
+  in other, perhaps more broad text-generation tasks).
+- Regarding decoding (so, "the process a model uses to choose the tokens in the generated output"):
+  - `temperature` is related with choosing the next token - higher values will make the model
+    more "creative", while lower values will make it more "conservative" (that is,
+    with higher temperature values, we'll choose tokens that are less likely to be chosen).
+    After experimenting with both, lower values (so, less creative ones) seemed to
+    produce better results -- perhaps in more creative tasks, such as answering abstract
+    questions, higher values would be more useful -- thus why I opted to use a low value, `0.15`.
+  - `top_k` is related with the number of tokens to consider for each step of the decoding
+    process. I tried tinkering around with it, but it did not seem to change much
+    in the results (albeit perhaps I could have tried with lower values to funnel the answers),
+    thus my final attempt did not include it.
+  - `top_p` sampling, or _nucleus sampling_, makes the model choose a token from
+    the smallest pool of tokens that have a cumulative probability of `top_p`.
+    Here, higher values did seem to yield better results with relation to fixing
+    compilation errors (albeit most turned into test failures), but nevertheless
+    a high value (`0.975`) ended up being used.
 
 ## General results
 
-TODO: add
+Besides the errors/issues mentioned in the previous sections, one of the most recurrent problems
+was definitely the model's borderline refusal to utilize `use` statements (e.g., `use std::io`)
+whenever needed, even if the error message itself clearly says it should do so.
+Moreover, the model sometimes assumes certain APIs, where methods such as `trim()`
+were assumed to exist for `f64`'s - they do not. Besides, sometimes the model
+tried to perform literal translations of char-int operations, and they do not work
+in the same way in both C and Rust. Finally, even when the syntax was well translated,
+the model struggled with fixing simple output formatting errors, which lead to tests
+usually failing, as the absence of characters such as newlines being enough to
+make the output not match the expected one.
+
+As such, **the vast majority** of the translations failed, with most of the errors
+being compilation errors. Although I was aware that non-GPT/CodeLlama/CodeWizard models
+would probably not perform particularly well, I was still surprised at the low
+amount of tests that actually fully passed. Between API and type mismatches, missing
+`use` statements, and output formatting errors, the model seemed to struggle with
+translations in a general fashion, and I'm left confused on whether this is due to
+the model's inability to perform well in these kinds of tasks, or if I could have done
+something vastly different to achieve better results - more iterations did not seem to
+change much, and varying parameters, albeit changing the code, did not seem to change
+the results themselves that much overall.
+
+One thing that would have been interesting, which I unfortunately forgot until the very end,
+is to have tracked the results of the model's translations between different ranges
+of iterations, and different values for the model's parameters; this very well could
+have lead to me to, using proper visualizations for the acquired data, understand
+patterns on the results, and find out the ideal parameters to be used.
 
 ## Side-experiment - C-to-Python
 
@@ -180,8 +221,7 @@ need to print newlines after each digit, nor that the prompt separator for user 
 is a `>`, not a `:`, and finally, that the final "That's all, have a nice day!" message
 should be printed after the digits. I tried tinkering around the model's parameters,
 but never seemed to make this quite work - in future experiments, it would be interesting
-to test whether other, perhaps more advanced/well trained/specifically code-trained
-models would be able to perform better on this regard.
+to test whether other, perhaps more advanced/well trained/specifically "top_k": 50,
 
 ## Some ideas that could still be explored in the future
 
@@ -211,8 +251,7 @@ also providing me insights on why some of the errors I found were happening, and
 how academia is currently trying to solve them. Some of them are the following (I read
 a couple of more, whose links I'm not currently able to find):
 
-- [Understanding the Effectiveness of Large
-  Language Models in Code Translation - Rangeet Pan et. al](https://arxiv.org/pdf/2308.03109.pdf)
-- [Attention, Compilation, and Solver-based Symbolic
-  Analysis are All You Need - Prithwish Jana et. al](https://arxiv.org/pdf/2306.06755.pdf)
+- [Understanding the Effectiveness of Large Language Models in Code Translation - Rangeet Pan et. al](https://arxiv.org/pdf/2308.03109.pdf)
+- [Attention, Compilation, and Solver-based Symbolic Analysis are All You Need - Prithwish Jana et. al](https://arxiv.org/pdf/2306.06755.pdf)
 - [IBM India's overview and publications on Code Translation](https://research.ibm.com/projects/code-translation)
+- [IBM's article on model parameters](https://www.ibm.com/docs/en/watsonx-as-a-service?topic=models-parameters)
