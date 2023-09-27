@@ -221,7 +221,8 @@ need to print newlines after each digit, nor that the prompt separator for user 
 is a `>`, not a `:`, and finally, that the final "That's all, have a nice day!" message
 should be printed after the digits. I tried tinkering around the model's parameters,
 but never seemed to make this quite work - in future experiments, it would be interesting
-to test whether other, perhaps more advanced/well trained/specifically "top_k": 50,
+to test whether other, perhaps more advanced/well trained/specifically code-oriented
+models would perform better in this regard.
 
 ## Some ideas that could still be explored in the future
 
