@@ -1,5 +1,5 @@
 ################################################################################
-# C to Rust translation - inputs are every IntroClass student submission, for every benchmark 
+# C to Rust translation - inputs are the IntroClass given-solution per benchmark
 
 import os
 import subprocess
@@ -48,21 +48,36 @@ def create_model(seed):
 
 prompt = PromptTemplate(
   input_variables=[ "code" ],
-  template="Translate the following C code to Rust:\n{code}"
+  template="""
+    Translate the following C code to Rust.
+    The code must be a direct translation, do not change the logic nor add anything else:
+    \n{code}
+  """
 )
 prompt_with_previous_compilation_error = PromptTemplate(
   input_variables=[ "code", "previous_compilation_error" ],
-  template="Translate the following C code to Rust (don't forget to fix the error):\n{code}\nError: {previous_compilation_error}"
+  template="""
+    Directly translate the following C code to Rust
+    (don't forget to fix the compilation errors displayed below; common examples
+    are type mismatches and forgetting to use `use std::io` and the likes):
+    \n{code}
+    \nError: {previous_compilation_error}.
+  """
 )
 
 prompt_with_previous_test_failure = PromptTemplate(
   input_variables=[ "code", "expected_output", "actual_output" ],
-  template="Translate the following C code to Rust (don't forget to fix the test output-errors):\n{code}\nExpected output: {expected_output}\nActual output: {actual_output}"
+  template="""
+    Directly translate the following C code to Rust
+    (don't forget to fix the test's output-errors displayed below):
+    \n{code}
+    \nExpected output: {expected_output}
+    \nActual output: {actual_output}.
+  """
 )
 
 def perform_query(code, model, previous_compilation_error = None, previous_test_failure = None):
   if previous_compilation_error:
-    print_debug(f"Previous compilation error: {previous_compilation_error}")
     chain = LLMChain(
       prompt=prompt_with_previous_compilation_error,
       llm=model
@@ -70,7 +85,6 @@ def perform_query(code, model, previous_compilation_error = None, previous_test_
     reply = chain.run({"code": code, "previous_compilation_error": previous_compilation_error})
   elif previous_test_failure:
     expected_output, actual_output = previous_test_failure
-    print_debug(f"Previous test failure: {previous_test_failure}")
     chain = LLMChain(
       prompt=prompt_with_previous_test_failure,
       llm=model
@@ -95,7 +109,7 @@ def perform_query(code, model, previous_compilation_error = None, previous_test_
 
 SRC_DIR = os.getcwd()
 BENCHMARK_LOCATION = SRC_DIR + "/../data/IntroClass/"
-RUST_CODE_LOCATION = SRC_DIR + "/../data/c-to-rust/"
+RUST_CODE_LOCATION = SRC_DIR + "/../data/c-to-rust-correct/"
 BENCHMARKS = map(
  lambda b: BENCHMARK_LOCATION + b,
  [ "checksum/", "digits/", "grade/", "median/", "smallest/", "syllables/" ]
@@ -130,17 +144,39 @@ def create_tests(rust_dir, benchmark):
   os.chdir(pwd)
 
 def test_code(rust_dir):
-  pwd = os.getcwd()
-  os.chdir(rust_dir)
-  compilation_result = subprocess.run(["rustc", "src/main.rs"], capture_output=True, text=True)
-  os.chdir(pwd)
+  global compilation_failures, test_failures, test_successes
 
-  # Rust's compiler, on compilation errors, returns "For more information about this error, try `rustc --explain <error code>`".
-  # With more time, it'd be interesting to parse the error code, give it back to the LLM
-  # and ask it to fix the code, considering the given error code.
-  if compilation_result.returncode != 0:
-    return QueryResult("COMPILER_FAILURE", compilation_result.stderr)
-  return run_tests(rust_dir)
+  # We'll try 3 runs to try and compile, and 3 others to run the tests
+  for attempt in range(1, 4):
+    pwd = os.getcwd()
+    os.chdir(rust_dir)
+    compilation_result = subprocess.run(["rustc", "src/main.rs"], capture_output=True, text=True)
+    os.chdir(pwd)
+
+    if compilation_result.returncode != 0:
+      print_debug(f"Compilation failure: {compilation_result.stderr}")
+      compilation_failures += 1
+      if attempt == 3:
+        return QueryResult("COMPILER_FAILURE", compilation_result.stderr)
+    else:
+      break
+
+  for attempt in range(1, 4):
+    test_result = run_tests(rust_dir)
+    if test_result.result == "COMPILER_FAILURE":
+      compilation_failures += 1
+      # We don't want to keep trying to run the tests if we can't even compile, plus could lead to an infinite loop
+      return test_result
+    elif test_result.result == "TEST_FAILURE":
+      print_debug(f"Test failure: {test_result.outputs}")
+      test_failures += 1
+      if attempt == 3:
+        return test_result
+    else:
+      break
+  
+  test_successes += 1
+  return QueryResult("TEST_SUCCESS")
 
 def run_tests(rust_dir):
   # Once again, we won't be using `cargo test`, but rather just running the program itself with specific inputs (and checking the outputs)
@@ -159,9 +195,12 @@ def run_tests(rust_dir):
           expected_output = expected_output.read()
           # Ideally we'd keep checking more and more tests, but for simplicity's
           # sake we'll just stop at the first failure
-          if result.stdout != expected_output:
+          if expected_output != result.stdout.decode("utf-8"):
             os.chdir(pwd)
-            return QueryResult("TEST_FAILURE", outputs = (expected_output, result.stdout))
+            print_debug(f"Test failure for {test_type}/{test_name}.in")
+            print_debug(f"Expected output: {expected_output}")
+            print_debug(f"Actual output: {result.stdout.decode('utf-8')}")
+            return QueryResult("TEST_FAILURE", outputs = (expected_output, result.stdout.decode("utf-8")))
   os.chdir(pwd)
   return QueryResult("TEST_SUCCESS")
 
@@ -170,12 +209,11 @@ def process_submission(
   no_compilation_errors = True, previous_error = None,
   no_test_errors = True, previous_test_failure = None
 ):
-  global compilation_failures, test_failures, test_successes
   try:
     print_debug(f"Processing {submission_path + benchmark_name + '.c'}")
     with open(submission_path + benchmark_name + ".c", "r") as s:
       code = s.read()
-      llm = create_model(seed=randint(0, 1000000))
+      llm = create_model(seed = randint(0, 1000000))
       reply = perform_query(code, llm, previous_error, previous_test_failure)
       if not os.path.isdir(rust_dir + "/src"):
         os.mkdir(rust_dir + "/src")
@@ -187,19 +225,12 @@ def process_submission(
         case "COMPILER_FAILURE":
           if no_compilation_errors:
             process_submission(submission_path, benchmark_name, False, query_result.error, no_test_errors)
-          else:
-            print_error(f"Compiler failure for {submission_path + benchmark_name + '.c'}")
-            compilation_failures += 1
         case "TEST_FAILURE":
           if no_test_errors:
             # I'm forcing False for no_compilation_errors, just so there's no possibility of back-and-forth between the two
             process_submission(submission_path, benchmark_name, False, None, False, query_result.outputs)
-          else:
-            print_info(f"Test failure for {submission_path + benchmark_name + '.c'}")
-            test_failures += 1
         case "TEST_SUCCESS":
           print_info(f"Test success for {submission_path + benchmark + '.c'}")
-          test_successes += 1
 
   except FileNotFoundError:
     print(f"The submission {submission_path + benchmark_name + '.c'} was not found.")
@@ -214,36 +245,18 @@ test_successes = 0
 
 if __name__ == "__main__":
   for benchmark in BENCHMARKS:
+    print_debug(f"Processing benchmark {benchmark}")
     # create directory in c-to-rust if it hasn't been already done
     benchmark_name = benchmark.split("/")[-2]
-    if not os.path.isdir(RUST_CODE_LOCATION + benchmark_name):
-      os.mkdir(RUST_CODE_LOCATION + benchmark_name)
-    
-    for student_directory_name in os.listdir(benchmark):
-      student_directory_path = benchmark + student_directory_name + "/"
-      if not os.path.isdir(student_directory_path) and student_directory_name not in TO_AVOID:
-        continue
+    test_folder = benchmark + "tests/"
+    rust_dir = RUST_CODE_LOCATION + benchmark_name
 
-      # create directory in c-to-rust/benchmark if it hasn't been already done
-      if not os.path.isdir(RUST_CODE_LOCATION + benchmark_name + "/" + student_directory_name):
-        os.mkdir(RUST_CODE_LOCATION + benchmark_name + "/" + student_directory_name)
+    if not os.path.isdir(rust_dir):
+      os.mkdir(rust_dir)
+      cargo_init(rust_dir)
 
-      # we're within a student's submissions folder
-      for submission_name in os.listdir(student_directory_path):
-        submission_path = student_directory_path + submission_name + "/"
-        if not os.path.isdir(submission_path):
-          continue
-        
-        rust_dir = RUST_CODE_LOCATION + benchmark_name + "/" + student_directory_name + "/" + submission_name
-        # create directory in c-to-rust/benchmark/student if it hasn't been already done
-        if not os.path.isdir(rust_dir):
-          os.mkdir(rust_dir)
-          # we want this to be a rust project, thus we need to run cargo init
-          cargo_init(rust_dir)
-
-        # we also need to create the tests
-        create_tests(rust_dir, benchmark)
-
-        process_submission(submission_path, benchmark_name)
+    # we also need to create the tests
+    create_tests(rust_dir, benchmark)
+    process_submission(test_folder, benchmark_name)
 
   print_info(f"Compilation failures: {compilation_failures}, Test failures: {test_failures}, Test successes: {test_successes}")

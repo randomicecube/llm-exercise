@@ -1,7 +1,11 @@
+################################################################################
+# C to Python translation - inputs are every IntroClass student submission, for every benchmark 
+
 import os
 import subprocess
 from langchain import HuggingFaceHub, LLMChain
 from langchain.prompts import PromptTemplate
+from random import randint
 
 print_debug = lambda arg: print("[DEBUG] " + str(arg))
 print_info = lambda arg: print("[INFO] " + str(arg))
@@ -23,33 +27,33 @@ def get_api_token(agenix = True):
   return os.environ.get("HUGGING_FACE_API_KEY")
 
 MODEL = "HuggingFaceH4/starchat-beta"
-API_TOKEN = get_api_token(False)
+API_TOKEN = get_api_token()
 
 ################################################################################
 
-llm = HuggingFaceHub(
+def create_model(seed):
+  return HuggingFaceHub(
     repo_id=MODEL,
     huggingfacehub_api_token=API_TOKEN,
     task = "text-generation",
     model_kwargs = {
-      "min_length": 100,
-      "max_new_tokens": 400,
-      "do_sample": True,
-      "repetition_penalty": 1.2,
-      "temperature": 0.2,
-      "top_k": 50,
-      "top_p": 0.95,
-      "eos_token_id": 123721,
+      "max_new_tokens": 512,
+      "repetition_penalty": 1.05,
+      "temperature": 0.15,
+      "top_p": 0.975,
+      "return_full_text": True,
+      "seed": seed,
     }
 )
 
 prompt = PromptTemplate(
   input_variables=[ "code" ],
-  template="Translate the following C code to Python:\n{code}"
+  # The __main__ part seems to be important for it not to just do the function itself
+  template="Translate the following C code to Python (don't forget to add a __main__, and don't forget the output must be exactly the same):\n{code}"
 )
 
-def perform_query(code):
-  chain = LLMChain(prompt=prompt, llm=llm)
+def perform_query(code, model):
+  chain = LLMChain(prompt=prompt, llm=model)
   reply = chain.run(code)
   reply = reply.partition("```python")[2] # get everything after the code starts being written
   reply = reply.partition("```")[0] # we can discard everything after the code ends
@@ -63,17 +67,12 @@ def perform_query(code):
 SRC_DIR = os.getcwd()
 BENCHMARK_LOCATION = SRC_DIR + "/../data/IntroClass/"
 PYTHON_CODE_LOCATION = SRC_DIR + "/../data/c-to-python/"
-#BENCHMARKS = map(
-#  lambda b: BENCHMARK_LOCATION + b,
-#  [ "checksum/", "digits/", "grade/", "median/", "smallest/", "syllables/" ]
-#)
 BENCHMARKS = map(
-  lambda b: BENCHMARK_LOCATION + b,
-  [ "checksum/" ]
+ lambda b: BENCHMARK_LOCATION + b,
+ [ "checksum/", "digits/", "grade/", "median/", "smallest/", "syllables/" ]
 )
 TO_AVOID = [ "tests" ]
-#TEST_TYPES = [ "blackbox", "whitebox" ]
-TEST_TYPES = [ "whitebox" ]
+TEST_TYPES = [ "blackbox", "whitebox" ]
 
 compilation_failures = 0
 test_failures = 0
@@ -145,7 +144,8 @@ for benchmark in BENCHMARKS:
         print_debug(f"Processing {submission_path + benchmark_name + '.c'}")
         with open(submission_path + benchmark_name + ".c", "r") as s:
           code = s.read()
-          reply = perform_query(code)
+          llm = create_model(seed=randint(0, 1000000))
+          reply = perform_query(code, llm)
           if not os.path.isdir(python_dir + "/src"):
             os.mkdir(python_dir + "/src")
           with open(python_dir + "/src/main.py", "w") as python_file:
