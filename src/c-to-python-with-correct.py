@@ -41,7 +41,6 @@ def create_model(seed):
       "repetition_penalty": 1.05,
       "temperature": 0.15,
       "top_p": 0.975,
-      "best_of": 2,
       "return_full_text": True,
       "seed": seed,
     }
